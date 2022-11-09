@@ -6,6 +6,9 @@
  *
  * TODO: insert your documentation here. :)
  *
+ * mm.c is to establish a Dynamic Storage Allocator.
+ * using explicit free list and segregated free list
+ *
  *************************************************************************
  *
  * ADVICE FOR STUDENTS.
@@ -102,6 +105,7 @@ static const size_t chunksize = (1 << 12);
 
 /**
  * TODO: explain what alloc_mask is
+ * alloc_mask is to know if the block if allocated or free
  */
 static const word_t alloc_mask = 0x1;
 
@@ -117,6 +121,7 @@ static const word_t bound_mini_mask = 0x1 << 2;
 
 /**
  * TODO: explain what size_mask is
+ * size_mask is to get the block size
  */
 static const word_t size_mask = ~(word_t)0xF;
 
@@ -431,8 +436,16 @@ static void write_header(block_t *block, size_t size, bool alloc,
     block->header = pack(size, alloc, prev_alloc, prev_mini);
 }
 
-/*write the footer
+/**
+ * @brief Writing a block ending at the the block address
+ *
+
  * The mini size don't have footer
+ * @param[out] block The location to begin writing the block header
+ * @param[in] size The size of the new block
+ * @param[in] alloc The allocation status of the new block
+ * @param[in] prev_alloc The allocation status of the previous block
+ * @param[in] prev_mini The size status of the new block if is mini size block
  */
 static void write_footer(block_t *block, size_t size, bool alloc,
                          bool prev_alloc, bool prev_mini) {
@@ -512,6 +525,7 @@ static block_t *find_prev(block_t *block) {
     return (block_t *)((char *)block - extract_size(*footerp));
 }
 
+// connect between block and block next
 static void connect_free_next(block_t *block, block_t *block_next) {
     if (!block || get_size(block) < min_block_size) {
         return;
@@ -521,6 +535,7 @@ static void connect_free_next(block_t *block, block_t *block_next) {
     body.free_node.next = block_next;
 }
 
+// connect between block and block prev
 static void connect_free_prev(block_t *block, block_t *block_prev) {
     if (!block || get_size(block) <= min_block_size) {
         return;
@@ -638,6 +653,7 @@ static int find_index(size_t size) {
     return index;
 }
 
+// the function is used to free next block in the free list
 static block_t *next_free(block_t *block) {
     if (block == NULL) {
         return NULL;
@@ -652,6 +668,7 @@ static block_t *next_free(block_t *block) {
     return body.free_node.next;
 }
 
+// the function is used to free previous block in the free list
 static block_t *prev_free(block_t *block) {
     // only free blocks have free Nodes
     if (block == NULL) {
@@ -676,11 +693,11 @@ static block_t *prev_free(block_t *block) {
         block_t *block_prev = NULL;
 
         while (target_free_block) {
-            if (target_free_block == block) {
-                return block_prev;
-            } else {
+            if (target_free_block != block) {
                 block_prev = target_free_block;
                 target_free_block = next_free(target_free_block);
+            } else {
+                return block_prev;
             }
         }
         return NULL;
@@ -689,6 +706,7 @@ static block_t *prev_free(block_t *block) {
     return body.free_node.prev;
 }
 
+// add a free block in the free list
 static void free_add(block_t *block) {
     if (block == NULL) {
         return;
@@ -709,6 +727,7 @@ static void free_add(block_t *block) {
     free_head[index] = block;
 }
 
+// remove a free block in the free list
 static void free_remove(block_t *block) {
     if (block == NULL) {
         return;
@@ -736,9 +755,13 @@ static void free_remove(block_t *block) {
  * @brief
  *
  * <What does this function do?>
+ * coalesce the free blocks
  * <What are the function's arguments?>
+ * block
  * <What is the function's return value?>
+ * block
  * <Are there any preconditions or postconditions?>
+ * the block is not null
  *
  * @param[in] block
  * @return
@@ -843,7 +866,9 @@ static block_t *coalesce_block(block_t *block) {
  * @brief
  *
  * <What does this function do?>
+ * extand the heap
  * <What are the function's arguments?>
+ * size
  * <What is the function's return value?>
  * <Are there any preconditions or postconditions?>
  *
@@ -879,9 +904,13 @@ static block_t *extend_heap(size_t size) {
  * @brief
  *
  * <What does this function do?>
+ * split the block
  * <What are the function's arguments?>
+ * block and size
  * <What is the function's return value?>
+ *
  * <Are there any preconditions or postconditions?>
+ *  the block can split to a mini block
  *
  * @param[in] block
  * @param[in] asize
@@ -964,8 +993,11 @@ static block_t *find_fit(size_t asize) {
  * @brief
  *
  * <What does this function do?>
+ * to make sure write the right heap
  * <What are the function's arguments?>
+ * lines
  * <What is the function's return value?>
+ * true or false
  * <Are there any preconditions or postconditions?>
  *
  * @param[in] line
@@ -1033,10 +1065,13 @@ bool mm_checkheap(int line) {
  * @brief
  *
  * <What does this function do?>
+ * initiaize the heap
  * <What are the function's arguments?>
+ * NULL
  * <What is the function's return value?>
  * <Are there any preconditions or postconditions?>
- *
+ * initialize the head of free block list
+ * Create the initial empty heap
  * @return
  */
 bool mm_init(void) {
@@ -1070,9 +1105,13 @@ bool mm_init(void) {
  * @brief
  *
  * <What does this function do?>
+ * This function is to get the input size alloced
  * <What are the function's arguments?>
+ * size
  * <What is the function's return value?>
+ * return to a pointer
  * <Are there any preconditions or postconditions?>
+ * heap_start not null and initialized the heap
  *
  * @param[in] size
  * @return
@@ -1209,9 +1248,7 @@ void *realloc(void *ptr, size_t size) {
     }
 
     size_t asize = round_up(size + wsize, dsize);
-    if (asize < min_block_size) {
-        asize = min_block_size;
-    }
+
     // the next block has enough space to store the more size
     if (block_size < asize) {
         newptr = malloc(size);
@@ -1222,9 +1259,7 @@ void *realloc(void *ptr, size_t size) {
 
         // Copy the old data
         copysize = get_payload_size(block); // gets size of old payload
-        // if (size < copysize) {
-        //     copysize = size;
-        // }
+
         memcpy(newptr, ptr, copysize);
 
         // Free the old block
